@@ -1,0 +1,7 @@
+{
+  "_说明": "复制本文件为 ai_config.json 并填入真实信息。支持任意 OpenAI 兼容接口。不填则题目辅助模块降级为规则建议（不猜答案，提示人工判断）。",
+  "base_url": "https://api.deepseek.com/v1",
+  "model": "deepseek-chat",
+  "api_key": "",
+  "timeout": 30
+}

@@ -1,0 +1,42 @@
+# ===== 敏感凭据与登录态：绝不入库 =====
+config/credentials.json
+config/ai_config.json
+data/browser_profile/
+data/browser_profile_principle/
+data/storage_state.json
+data/storage_state_principle.json
+data/login_signal.txt
+data/login_info.json
+
+# ===== 运行数据 / 数据库 / 快照 / 日志 =====
+data/
+*.db
+*.db-journal
+*.log
+install_pw.log
+
+# ===== 控制面板运行时产物 =====
+web/live_status.json
+web/live_events.json
+web/control_signal.json
+web/pending_questions.json
+web/quiz_notify.json
+web/qshots/
+web/*.png
+web/*.jpg
+
+# ===== 编辑器 / 项目内部数据 =====
+.workbuddy/
+
+# ===== 通用忽略 =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
