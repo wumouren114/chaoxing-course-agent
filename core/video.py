@@ -105,7 +105,9 @@ def monitor_playback(page, player_frame, max_seconds=None,
         time.sleep(2)
 
     if max_seconds is None:
-        max_seconds = duration * 1.5 + 60  # 给足自然播放时间
+        # 平台会周期性暂停视频（反挂机检测），恢复播放需要额外时间。
+        # 1.5x 预算偏紧，长视频+多次暂停容易被误判超时而反复重播。放宽到 3x + 3 分钟。
+        max_seconds = duration * 3 + 180
 
     start = time.time()
     last_pct = -1
@@ -124,8 +126,8 @@ def monitor_playback(page, player_frame, max_seconds=None,
                 "ok": True, "reason": "播放进度达标",
                 "final": st, "duration": duration,
             }
-        # 检测卡住（进度长时间不动且处于暂停）
-        if st.get("paused") and pct > 0:
+        # 检测卡住（处于暂停即计入，不再要求 pct>0 —— 播放初始阶段暂停在 0% 时也必须能恢复）
+        if st.get("paused") and not st.get("ended"):
             stalled_count += 1
             # 首次检测到暂停就检查弹题（弹题会导致视频暂停等待作答）
             if stalled_count == 1 and on_pause:
@@ -138,8 +140,8 @@ def monitor_playback(page, player_frame, max_seconds=None,
                         stalled_count = 0
                 except Exception as e:
                     print(f"[视频] on_pause 回调异常: {e}")
-            if stalled_count >= 5:
-                # 尝试再次点击播放（可能是网络抖动导致的暂停）
+            # 更快恢复：连续 3 次（约 15 秒）仍暂停就主动点击播放，避免长时间停滞耗尽预算
+            if stalled_count >= 3:
                 print("[视频] 检测到暂停，尝试恢复播放")
                 click_play(player_frame)
                 stalled_count = 0
