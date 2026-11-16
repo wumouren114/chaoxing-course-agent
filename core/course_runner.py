@@ -56,9 +56,20 @@ def enter_chapter(page, fr, node_id):
     return title
 
 
-def find_all_video_frames(page):
-    """找出当前页面所有视频播放器 iframe"""
-    return [f for f in page.frames if "ananas/modules/video" in (f.url or "")]
+def find_all_video_frames(page, timeout=30, poll=2, min_count=1):
+    """找出当前页面所有视频播放器 iframe。
+
+    视频 iframe 常为延迟加载：进入章节后立即读取 page.frames 可能为空，
+    导致把"有视频的章节"误判为"纯文档/测验章节"（见 4.2 的误判）。
+    这里做带超时的轮询等待，直到出现至少 min_count 个视频 frame 或超时。
+    """
+    import time as _t
+    deadline = _t.time() + timeout
+    found = [f for f in page.frames if "ananas/modules/video" in (f.url or "")]
+    while len(found) < min_count and _t.time() < deadline:
+        page.wait_for_timeout(int(poll * 1000))
+        found = [f for f in page.frames if "ananas/modules/video" in (f.url or "")]
+    return found
 
 
 def check_chapter_completion(fr, node_id) -> Dict:
@@ -109,12 +120,12 @@ def process_chapter(s: Session, task: dict, ls: Optional[LiveState] = None) -> D
         if ls:
             ls.update(task=node_id, task_title=title, stage="处理章节", message=f"进入 {title}")
 
-        # 播放当前页面所有视频
-        players = find_all_video_frames(page)
-        log.info(f"章节 {node_id} 发现 {len(players)} 个视频")
+        # 播放当前页面所有视频（带轮询等待，兼容视频 iframe 延迟加载）
+        players = find_all_video_frames(page, timeout=30)
+        log.info(f"章节 {node_id} 发现 {len(players)} 个视频（已等待最多30秒）")
         if not players:
             result["status"] = "NEEDS_REVIEW"
-            result["reason"] = "未发现视频（可能是纯文档/测验章节）"
+            result["reason"] = "等待30秒后仍未发现视频（可能是纯文档/测验章节）"
             return result
 
         # 暂停回调：检测弹题并走作答流程（把 course/node/title 绑定到闭包）
