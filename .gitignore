@@ -15,10 +15,11 @@ data/
 *.log
 install_pw.log
 
-# ===== 控制面板运行时产物 =====
-web/live_status.json
-web/live_events.json
-web/control_signal.json
+# ===== 控制面板运行时产物（含多课程 *_principle 独立状态文件） =====
+web/live_status*.json
+web/live_events*.json
+web/control_signal*.json
+web/resume_signal*.txt
 web/pending_questions.json
 web/quiz_notify.json
 web/qshots/
