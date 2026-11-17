@@ -44,24 +44,41 @@ def read_state(player_frame) -> Dict:
 
 
 def click_play(player_frame) -> bool:
-    """正常点击播放按钮（等价用户点击大播放按钮）"""
+    """正常点击播放按钮（等价用户点击大播放按钮）。
+
+    某些课程页面有时间轴标记层（tkTopic_oper / ans-timelineobjects）浮在控制栏上，
+    会拦截对播放按钮的点击。此时降级为 video.play() —— 仍是正常播放，不伪造进度。
+    点击统一加短超时，避免被遮挡时每次耗满 30 秒。
+    """
+    def _fallback():
+        try:
+            player_frame.evaluate(
+                "() => { const v=document.querySelector('video.vjs-tech, video'); "
+                "if(v && v.paused){ return v.play().then(()=>true).catch(()=>false); } "
+                "return true; }")
+            return True
+        except Exception as e:
+            print(f"[视频] video.play() 兜底失败: {e}")
+            return False
+
     try:
         # 优先点大播放按钮
         big = player_frame.locator("button.vjs-big-play-button")
         if big.count() > 0 and big.first.is_visible():
-            big.first.click()
+            big.first.click(timeout=3000)
             return True
-        # 否则点控制栏播放按钮
+    except Exception:
+        pass
+    try:
+        # 否则点控制栏播放按钮（短超时，被遮挡时快速降级）
         ctrl = player_frame.locator("button.vjs-play-control")
         if ctrl.count() > 0:
-            ctrl.first.click()
+            ctrl.first.click(timeout=3000)
             return True
-        # 最后兜底：直接调用 video.play()（仍是正常播放，不伪造进度）
-        player_frame.evaluate("() => { const v=document.querySelector('video'); if(v) v.play(); }")
-        return True
     except Exception as e:
-        print(f"[视频] 点击播放失败: {e}")
-        return False
+        print(f"[视频] 播放按钮点击被拦截，降级 video.play(): {str(e).splitlines()[0]}")
+    # 按钮不可用/被遮挡时兜底：直接调用 video.play()（正常播放，不伪造进度）
+    return _fallback()
 
 
 def wait_for_metadata(player_frame, timeout=20) -> bool:
