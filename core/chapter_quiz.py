@@ -288,7 +288,7 @@ def _answer_index(k: str, q: Dict) -> int:
     opts = q.get("options", [])
     if q.get("qtype") == "3" or len(opts) == 2 and opts[0]["key"] in ("true", "A"):
         return 0 if k.upper() in ("A", "TRUE", "对", "正确") else 1
-    if re.fullmatch(r"[A-Da-d]", k):
+    if re.fullmatch(r"[A-Fa-f]", k):
         return ord(k.upper()) - ord("A")
     # 按 key 反查
     for i, o in enumerate(opts):
@@ -357,8 +357,8 @@ def _normalize_answer(ans: str, q: Dict) -> List[str]:
     # 只从"看起来是选项字母"的片段提取——去掉常见中文前缀和标点，
     # 剩下的若仅由 A-D/逗号/空格组成才认作字母答案。
     cleaned = re.sub(r"[答案选项选择：:是为\.、\s]", "", ans)
-    if cleaned and re.fullmatch(r"[A-Da-d,，/]+", cleaned):
-        letters = [c.upper() for c in re.findall(r"[A-Da-d]", cleaned)]
+    if cleaned and re.fullmatch(r"[A-Fa-f,，/]+", cleaned):
+        letters = [c.upper() for c in re.findall(r"[A-Fa-f]", cleaned)]
         valid = {o["key"].upper() for o in opts if o.get("key")}
         # 多选题的选项 key 为空（字母藏在 aria-label / 索引里），
         # 此时不能用 valid 白名单过滤，否则全被过滤掉导致提交失败。
