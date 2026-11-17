@@ -47,10 +47,19 @@ class Session:
 
     def __enter__(self):
         self.pw = sync_playwright().start()
-        self.context = self.pw.chromium.launch_persistent_context(
-            user_data_dir=str(self.profile), channel="msedge",
-            headless=self.headless, viewport=self.viewport,
-        )
+        self._browser = None
+        # 优先用 storage_state 注入登录态：persistent profile 的 cookie 会过期被踢回
+        # 登录页，而 storage_state.json 由每次成功登录后刷新，是更可靠的登录来源。
+        if self.state_file and Path(self.state_file).exists():
+            self._browser = self.pw.chromium.launch(
+                channel="msedge", headless=self.headless)
+            self.context = self._browser.new_context(
+                storage_state=str(self.state_file), viewport=self.viewport)
+        else:
+            self.context = self.pw.chromium.launch_persistent_context(
+                user_data_dir=str(self.profile), channel="msedge",
+                headless=self.headless, viewport=self.viewport,
+            )
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
         return self
 
@@ -59,8 +68,12 @@ class Session:
             if self.context:
                 self.context.close()
         finally:
-            if self.pw:
-                self.pw.stop()
+            try:
+                if self._browser:
+                    self._browser.close()
+            finally:
+                if self.pw:
+                    self.pw.stop()
 
     def ensure_login(self, timeout=60) -> bool:
         """确保处于登录态：优先复用 profile，否则自动登录。返回是否成功"""
