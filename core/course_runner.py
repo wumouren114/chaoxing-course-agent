@@ -73,20 +73,33 @@ def find_all_video_frames(page, timeout=30, poll=2, min_count=1):
 
 
 def check_chapter_completion(fr, node_id) -> Dict:
-    """核对目录中该章节的完成状态"""
+    """核对目录中该章节的完成状态。
+
+    关键修复（2026-11-17）：任务的"未完成"标记 catalog_tishi120 并不在
+    div.chapter_item 自身 class 上，而在子元素 .catalog_jindu 上。旧实现检查错
+    元素，导致永远读出"已完成"、数据库记假账。改用平台原生的 .bntHoverTips
+    文本（'已完成' / 'X个待完成任务点'）判定，与网页版一致。
+    """
     try:
         node = fr.locator(f"div.chapter_item#cur{node_id}")
         if node.count() == 0:
             return {"confirmed": False, "reason": "节点不存在"}
-        cls = node.get_attribute("class") or ""
         text = node.inner_text(timeout=5000)
-        # catalog_tishi120 = 有未完成的任务点
-        done = "catalog_tishi120" not in cls
+        # 平台原生完成标记：.bntHoverTips 文本 == '已完成'
+        tip = ""
+        tips = node.locator(".bntHoverTips")
+        for i in range(tips.count()):
+            t = (tips.nth(i).text_content() or "").strip()
+            if t:
+                tip = t
+        done = (tip == "已完成")
+        # 兜底：若该章节确实没有任务点，也算无需处理
+        cls = node.get_attribute("class") or ""
         # 节点文本末尾的数字 = 剩余待完成任务点数
         m = re.search(r"(\d+)\s*$", text.strip())
         remaining = int(m.group(1)) if m else -1
-        return {"confirmed": done, "remaining": remaining, "text": text.replace("\n", " ")[:80],
-                "node_class": cls}
+        return {"confirmed": done, "remaining": remaining, "tip": tip,
+                "text": text.replace("\n", " ")[:80], "node_class": cls}
     except Exception as e:
         return {"confirmed": False, "reason": str(e)}
 
@@ -139,7 +152,10 @@ def process_chapter(s: Session, task: dict, ls: Optional[LiveState] = None) -> D
             player.wait_for_load_state("domcontentloaded", timeout=20000)
             if ls:
                 ls.update(stage=f"播放视频 {idx+1}/{len(players)}", message=f"{title}")
-            played = monitor_playback(page, player, progress_threshold=90, poll=5,
+            # 必须播到视频真正结尾：平台按"观看时长≥总时长90%"判定，
+            # 但续播视频起点可能已>87%，用90%阈值会提前退出导致平台不认。
+            # 设 99.5 并依赖 ended 检测，确保完成上报（playingTime≈duration）发出。
+            played = monitor_playback(page, player, progress_threshold=99.5, poll=5,
                                       on_pause=_on_pause)
             if not played.get("ok"):
                 all_ok = False
