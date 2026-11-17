@@ -15,6 +15,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(HERE), **kwargs)
 
+    # 允许面板指定写入哪个课程的控制信号文件（白名单，防目录穿越）
+    VALID_SIGNALS = {"control_signal.json", "control_signal_principle.json"}
+
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length).decode("utf-8")
@@ -34,9 +37,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._json({"ok": False, "error": str(e)})
             return
 
-        # 默认：控制指令
-        (HERE / "control_signal.json").write_text(body, encoding="utf-8")
-        self._json({"ok": True})
+        # 默认：控制指令（可按课程写入对应信号文件）
+        target = "control_signal.json"
+        try:
+            req = json.loads(body)
+            if req.get("signal") in self.VALID_SIGNALS:
+                target = req["signal"]
+        except Exception:
+            pass
+        (HERE / target).write_text(body, encoding="utf-8")
+        self._json({"ok": True, "signal": target})
 
     def do_GET(self):
         path = self.path.split("?")[0]

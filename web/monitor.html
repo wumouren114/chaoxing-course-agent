@@ -66,6 +66,21 @@
   .qdone{font-size:13px;color:var(--green);font-weight:600;margin-top:8px}
   .quiz-alert{display:none;background:var(--amber-soft);border:1px solid var(--amber);color:var(--amber);
     font-weight:700;padding:10px 14px;border-radius:10px;margin-bottom:14px;font-size:14px}
+  /* 多课程总览 */
+  .overview{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+  .ov-card{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--border);
+    border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);cursor:pointer;transition:.15s}
+  .ov-card:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(20,40,80,.10)}
+  .ov-card.active{border-left-color:var(--brand);background:var(--brand-soft)}
+  .ov-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+  .ov-name{font-size:14px;font-weight:700}
+  .ov-bar{height:9px;background:#e6eaf0;border-radius:6px;overflow:hidden;margin:10px 0 6px}
+  .ov-fill{height:100%;width:0;transition:width .6s;background:linear-gradient(90deg,#16a34a,#4ade80)}
+  .ov-fill.run{background:linear-gradient(90deg,#2563eb,#60a5fa)}
+  .ov-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--sub);gap:8px;flex-wrap:wrap}
+  .ov-task{font-size:12px;color:var(--text);margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ov-stamp{font-size:11px;color:var(--sub);margin-top:4px}
+  @media(max-width:800px){.overview,.grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -76,6 +91,9 @@
   </header>
 
   <div class="quiz-alert" id="quizAlert">🔔 检测到待作答弹题，请查看下方"待作答题目"区</div>
+
+  <!-- 多课程总览（点击卡片切换下方详情） -->
+  <div class="overview" id="overview"></div>
 
   <div class="grid">
     <!-- 左：实时截图 -->
@@ -136,9 +154,56 @@
 const $ = id => document.getElementById(id);
 let lastShotVer = -1;
 
+// 课程配置：状态文件 / 事件文件 / 控制信号文件
+const COURSES = [
+  {key:'ai_tools',     name:'人人都能上手的AI工具',        status:'live_status.json',          events:'live_events.json',          signal:'control_signal.json'},
+  {key:'ai_principle', name:'生成式人工智能原理及其应用',  status:'live_status_principle.json', events:'live_events_principle.json', signal:'control_signal_principle.json'},
+];
+let selected = 'ai_tools'; // 当前详情展示的课程
+
+const CTRL_LABEL={IDLE:'空闲',RUNNING:'运行中',PAUSED:'已暂停',STOPPING:'停止中',STOPPED:'已完成/停止'};
+
+// 拉取所有课程状态，渲染总览卡片
+async function renderOverview(){
+  const cards = await Promise.all(COURSES.map(async c=>{
+    try{ const r=await fetch(c.status+'?t='+Date.now(),{cache:'no-store'}); return await r.json(); }
+    catch(e){ return null; }
+  }));
+  $('overview').innerHTML = COURSES.map((c,i)=>{
+    const d = cards[i] || {};
+    const s = d.stats||{};
+    const total=s.total||0, done=s.completed||0, skip=s.skipped||0, rev=s.review||0, err=s.errors||0;
+    const pct = s.pct||0;
+    const live = d.running && d.control==='RUNNING';
+    const ctrl = d.control||'IDLE';
+    const badgeCls = live?'b-run':(ctrl==='STOPPED'&&done>0)?'b-run':(ctrl==='PAUSED'?'b-pause':(rev||err)?'b-err':'b-idle');
+    const badgeTxt = live?'运行中':(ctrl==='STOPPED'&&done>0)?'已完成':(CTRL_LABEL[ctrl]||ctrl);
+    const preview = (d.video&&d.video.pct>0)
+      ? '▶ 正在播放 · '+d.video.pct+'%'
+      : (d.task_title||d.message||'--');
+    return `<div class="ov-card ${c.key===selected?'active':''}" onclick="selectCourse('${c.key}')">
+      <div class="ov-top">
+        <span class="ov-name">${c.name}</span>
+        <span class="badge ${badgeCls}">${badgeTxt}</span>
+      </div>
+      <div class="ov-bar"><div class="ov-fill ${live?'run':''}" style="width:${pct}%"></div></div>
+      <div class="ov-meta">
+        <span>已完成任务点 <b>${done}</b> / ${total}</span>
+        <span>跳过 ${skip}${rev?' · 需人工 '+rev:''}${err?' · 异常 '+err:''}</span>
+      </div>
+      <div class="ov-task" title="${preview}">${preview}</div>
+      <div class="ov-stamp">更新 ${d.updated_at||'--'}</div>
+    </div>`;
+  }).join('');
+}
+
+function selectCourse(key){ selected=key; refresh(); }
+
 async function refresh(){
+  await renderOverview();
+  const c = COURSES.find(x=>x.key===selected) || COURSES[0];
   try{
-    const r = await fetch('live_status.json?t='+Date.now(), {cache:'no-store'});
+    const r = await fetch(c.status+'?t='+Date.now(), {cache:'no-store'});
     const d = await r.json();
     $('updated').textContent = d.updated_at || '--';
     const live = d.running && d.control==='RUNNING';
@@ -170,7 +235,7 @@ async function refresh(){
     }
   }catch(e){}
   try{
-    const r2 = await fetch('live_events.json?t='+Date.now(), {cache:'no-store'});
+    const r2 = await fetch(c.events+'?t='+Date.now(), {cache:'no-store'});
     const evs = await r2.json();
     $('log').innerHTML = evs.map(e=>
       `<div class="${e.level}"><span class="ts">${e.ts}</span>${e.text}</div>`
@@ -217,13 +282,14 @@ async function submitAnswer(id){
   refreshQuestions();
 }
 
-// 控制按钮：向 control_signal.json 写指令，调度器读取
+// 控制按钮：向当前所选课程的信号文件写指令，调度器读取
 async function send(cmd){
+  const c = COURSES.find(x=>x.key===selected) || COURSES[0];
   await fetch('control_signal.json?t='+Date.now(), {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({command:cmd, ts:Date.now()})
+    body: JSON.stringify({command:cmd, ts:Date.now(), signal:c.signal})
   }).catch(()=>{});
-  $('message').textContent='已发送指令: '+cmd;
+  $('message').textContent='已对【'+c.name+'】发送指令: '+cmd;
 }
 $('btnStart').onclick=()=>send('start');
 $('btnPause').onclick=()=>send('pause_toggle');
