@@ -152,16 +152,36 @@ def process_chapter(s: Session, task: dict, ls: Optional[LiveState] = None) -> D
             player.wait_for_load_state("domcontentloaded", timeout=20000)
             if ls:
                 ls.update(stage=f"播放视频 {idx+1}/{len(players)}", message=f"{title}")
-            # 必须播到视频真正结尾：平台按"观看时长≥总时长90%"判定，
-            # 但续播视频起点可能已>87%，用90%阈值会提前退出导致平台不认。
-            # 设 99.5 并依赖 ended 检测，确保完成上报（playingTime≈duration）发出。
-            played = monitor_playback(page, player, progress_threshold=99.5, poll=5,
+            # 必须播到视频真正结尾：monitor_playback 现以 ended / 到片尾为准，
+            # 单纯"进度≥90%"不再触发完成，避免续播视频在90%处提前跳下一节。
+            played = monitor_playback(page, player, progress_threshold=99.9, poll=5,
                                       on_pause=_on_pause)
             if not played.get("ok"):
                 all_ok = False
                 log.warning(f"章节 {node_id} 视频{idx+1}播放失败: {played.get('reason')}")
                 break
             result["videos_played"] += 1
+
+        # 视频播完后，处理章节内的独立测验（"2测验"tab）
+        # 检测 → 抓题 → 入协作队列（等助手作答）→ 点选提交 → 核验
+        try:
+            import os
+            from core import chapter_quiz as cq
+            quiz_wait = int(os.environ.get("QUIZ_WAIT_SECONDS", "0"))
+            if quiz_wait > 0 and cq.has_quiz(page):
+                if ls:
+                    ls.update(stage="章节测验作答", message=f"{title} - 等待作答")
+                # 重新进入章节，确保测验tab可点
+                fr_q = open_course(s, task["course"])
+                enter_chapter(page, fr_q, node_id)
+                qr = cq.answer_quiz(page, task["course"], node_id, wait_seconds=quiz_wait)
+                result["quiz"] = qr
+                log.info(f"章节测验结果 {node_id}: {qr.get('status')} - {qr.get('reason')}")
+                if ls:
+                    ls.event(f"测验 {task.get('number','')}: {qr.get('status')}",
+                             "ok" if qr.get("status") == "answered" else "warn")
+        except Exception as e:
+            log.warning(f"章节测验处理异常 {node_id}: {e}")
 
         # 核对平台完成（重新加载目录）
         fr2 = open_course(s, task["course"])

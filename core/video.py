@@ -93,11 +93,18 @@ def wait_for_metadata(player_frame, timeout=20) -> bool:
 
 
 def monitor_playback(page, player_frame, max_seconds=None,
-                     progress_threshold=90, poll=3, on_tick=None,
+                     progress_threshold=99.9, poll=3, on_tick=None,
                      on_pause=None) -> Dict:
     """
-    监测视频自然播放，直到进度达标或超时。
+    监测视频自然播放，直到真正播到结尾或超时。
     不做任何拖拽/跳帧；只读取状态并等待。
+
+    完成判定（2026-11-17 修正"90%就跳下一节"）：
+      只有两种才算真正播完：
+        1) video.ended == true；
+        2) 进度≥99.9% 且 currentTime 距 duration ≤1.5s（确实到片尾）。
+      单纯"进度≥某百分比"不再触发完成——续播视频从高百分比起步时，
+      旧逻辑会在 90% 处提前退出，平台拿不到完整观看时长。
     on_pause(page, player_frame) -> 可选回调：检测到暂停时调用，用于处理弹题；
       返回 True 表示已处理（随后恢复播放），False/None 表示无弹题。
     返回监测结果字典。
@@ -138,9 +145,17 @@ def monitor_playback(page, player_frame, max_seconds=None,
             print(f"[视频] 进度: {pct}% ({st.get('time_display','')}/{st.get('duration_display','')}) "
                   f"paused={st.get('paused')}")
             last_pct = pct
-        if st.get("ended") or pct >= progress_threshold:
+        # 真正播完：ended 信号，或"进度≥阈值且已到片尾(距结尾≤1.5s)"。
+        # 只有百分比达标但没到片尾（如续播从90%起步）时继续等待，不提前跳节。
+        cur = st.get("current_time", 0) or 0
+        at_tail = duration > 0 and (duration - cur) <= 1.5
+        truly_done = bool(st.get("ended")) or (
+            pct >= progress_threshold and at_tail
+        )
+        if truly_done:
+            # 到达终点后再留一个轮询周期，确保平台上报最后一帧 playingTime
             return {
-                "ok": True, "reason": "播放进度达标",
+                "ok": True, "reason": "播放到真正片尾",
                 "final": st, "duration": duration,
             }
         # 检测卡住（处于暂停即计入，不再要求 pct>0 —— 播放初始阶段暂停在 0% 时也必须能恢复）
